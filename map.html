@@ -641,7 +641,7 @@
                     <span class="value" id="metric-fires" role="cell">--</span>
                 </div>
                 <div class="stat-row" role="row">
-                    <span class="label" role="cell">Acres burning</span>
+                    <span class="label" role="cell">Acres in incidents touching CO</span>
                     <span class="value" id="metric-acres" role="cell">--</span>
                 </div>
                 <div class="stat-row" role="row">
@@ -720,9 +720,13 @@
             const MAPBOX_TOKEN = window.MAPBOX_ACCESS_TOKEN || document.body.dataset.mapboxToken || '';
             const DATAWRAPPER_CHART_ID = document.body.dataset.datawrapperChart || '';
             const TOP_FIRE_LIMIT = Number(document.body.dataset.topFires || 5);
-            // NIFC ArcGIS endpoints - perimeters (polygons) and incident locations (points)
-            const PERIMETERS_ENDPOINT = `https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters_Current/FeatureServer/0/query?where=attr_POOState%3D%27US-${STATE_ABBREV}%27&outFields=*&f=geojson`;
-            const INCIDENTS_ENDPOINT = `https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations_Current/FeatureServer/0/query?where=POOState%3D%27US-${STATE_ABBREV}%27&outFields=*&f=geojson`;
+            const COLORADO_QUERY_ENVELOPE = '-109.060253,36.992426,-102.041524,41.003444';
+            const PERIMETERS_ENDPOINT = buildArcgisSpatialQueryUrl(
+                'WFIGS_Interagency_Perimeters_Current'
+            );
+            const INCIDENTS_ENDPOINT = buildArcgisSpatialQueryUrl(
+                'WFIGS_Incident_Locations_Current'
+            );
             const DAY_MS = 86_400_000;
             const SIZE_BUCKETS = [
                 { id: 'mega', label: 'Mega • 100k+ acres', min: 100_000, max: null, color: '#ff4d4f' },
@@ -922,6 +926,23 @@
                     sync();
                     accordion.addEventListener('toggle', sync);
                 });
+            }
+
+            function buildArcgisSpatialQueryUrl(serviceName) {
+                // Fetch incidents/perimeters that spatially intersect Colorado bounds.
+                // This includes fires whose origin state is outside Colorado but whose
+                // footprint overlaps Colorado.
+                const base = `https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/${serviceName}/FeatureServer/0/query`;
+                const params = new URLSearchParams({
+                    where: '1=1',
+                    outFields: '*',
+                    f: 'geojson',
+                    geometry: COLORADO_QUERY_ENVELOPE,
+                    geometryType: 'esriGeometryEnvelope',
+                    inSR: '4326',
+                    spatialRel: 'esriSpatialRelIntersects'
+                });
+                return `${base}?${params.toString()}`;
             }
 
             async function fetchAndMergeWildfireData() {
