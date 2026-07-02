@@ -565,14 +565,19 @@
             #timeline-panel input[type='range'] {
                 margin-top: 10px;
             }
+
+            #map {
+                height: 55vh;
+                min-height: 280px;
+            }
+
+            .hud {
+                max-height: none;
+                overflow-y: visible;
+            }
         }
 
         @media (max-width: 540px) {
-            #legend-panel,
-            #timeline-panel {
-                display: none;
-            }
-
             .panel {
                 padding: 12px 14px;
             }
@@ -780,6 +785,11 @@
 
             mapboxgl.accessToken = MAPBOX_TOKEN;
             const isMobile = window.matchMedia('(max-width: 640px)').matches;
+            // Below 980px the map is laid out in-flow (not fixed full-screen), so it
+            // sits inline with page content the user needs to scroll past. Cooperative
+            // gestures let a single-finger swipe scroll the page instead of panning
+            // the map; two fingers (or ctrl/cmd + scroll) are required to move the map.
+            const isScrollableLayout = window.matchMedia('(max-width: 980px)').matches;
 
             const map = new mapboxgl.Map({
                 container: 'map',
@@ -788,7 +798,8 @@
                 fitBoundsOptions: { padding: 20 },
                 maxBounds: MAX_BOUNDS,
                 minZoom: 5,
-                attributionControl: false
+                attributionControl: false,
+                cooperativeGestures: isScrollableLayout
             });
 
             map.addControl(new mapboxgl.AttributionControl({ customAttribution: 'Fire perimeters © NIFC' }));
