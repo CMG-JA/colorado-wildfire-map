@@ -55,7 +55,7 @@
     const RFW_ALERTS_ENDPOINT = 'https://api.weather.gov/alerts/active?event=Red%20Flag%20Warning&area=CO';
     // Standard NWS product color for Red Flag Warning.
     const RFW_COLOR = '#ff1493';
-    const COUNTY_SOURCES_ENDPOINT = 'data/county-evacuation-sources.json';
+    const COUNTY_SOURCES_ENDPOINT = 'data/county-evacuation-sources.json?v=20260707';
     const MAPBOX_GEOCODE_ENDPOINT = 'https://api.mapbox.com/geocoding/v5/mapbox.places/';
     const COLORADO_GEOCODE_BBOX = '-109.060253,36.992426,-102.041524,41.003444';
     const MAP_LOAD_TIMEOUT_MS = 30_000;
