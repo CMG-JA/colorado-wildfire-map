@@ -296,7 +296,8 @@ label.select-label select:focus-visible,
 }
 
 .result-button:hover,
-.result-button:focus {
+.result-button:focus,
+.result-button.is-active {
     background: rgba(255, 255, 255, 0.08);
 }
 
@@ -731,12 +732,7 @@ label.select-label select option {
     }
 }
 
-@media (max-width: 720px) {
-    :root {
-        --panel-max-width: 100%;
-        --panel-padding: 14px;
-    }
-
+@media (max-width: 980px) {
     .hud {
         position: relative;
         width: 100%;
@@ -744,6 +740,33 @@ label.select-label select option {
         top: auto;
         padding: 12px;
         gap: 12px;
+        max-height: none;
+        overflow-y: visible;
+    }
+
+    #map {
+        position: relative;
+        height: 62vh;
+        min-height: 360px;
+    }
+
+    #last-update {
+        position: relative;
+        bottom: auto;
+        left: auto;
+        margin: 12px 0 0 16px;
+    }
+
+    #error-banner {
+        top: auto;
+        bottom: 16px;
+    }
+}
+
+@media (max-width: 720px) {
+    :root {
+        --panel-max-width: 100%;
+        --panel-padding: 14px;
     }
 
     .panel {
@@ -807,11 +830,6 @@ label.select-label select option {
         height: 55vh;
         min-height: 280px;
     }
-
-    .hud {
-        max-height: none;
-        overflow-y: visible;
-    }
 }
 
 @media (max-width: 540px) {
@@ -829,23 +847,5 @@ label.select-label select option {
 
     .panel h2 {
         font-size: 1rem;
-    }
-}
-
-@media (max-width: 980px) {
-    #map {
-        position: relative;
-    }
-
-    #last-update {
-        position: relative;
-        bottom: auto;
-        left: auto;
-        margin: 12px 0 0 16px;
-    }
-
-    #error-banner {
-        top: auto;
-        bottom: 16px;
     }
 }

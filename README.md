@@ -13,10 +13,10 @@ The map is designed to fail safely: optional overlays and link data can be unava
 ## Features
 
 - Full-screen Mapbox wildfire map with the original dark HUD presentation.
-- NIFC/WFIGS current fire perimeters plus incident points when perimeters are unavailable.
+- NIFC/WFIGS current fire perimeters, with incident points used when perimeters are unavailable.
 - Largest active fires list, active fire metrics, acreage, average containment, size filters, containment filter, discovery timeline, terrain/satellite style toggle, red flag warning toggle, and AQI overlay toggle.
 - Defensive loading for empty, unavailable, or partially malformed remote feeds.
-- Compact source/freshness labels for fire data, red flag warnings, AQI, and county emergency links.
+- Compact source/freshness labels for fire data, red flag warnings, AQI availability, and county emergency links.
 - Colorado-focused Mapbox place search with autocomplete, clear no-result states, and selected-place marker.
 - Nearest fires list for a selected place, with distance labels for perimeter versus incident-point distances.
 - Enhanced fire popups with geometry status, source/freshness, selected-place distance, and county emergency links when reviewed.
@@ -26,13 +26,15 @@ The map is designed to fail safely: optional overlays and link data can be unava
 
 - Fire data: NIFC/WFIGS current fire perimeters and incident locations.
 - Red flag warnings: National Weather Service active alerts and affected fire-weather zone geometry.
-- AQI overlay: AQICN EPA AQI tile layer from the original map.
+- AQI overlay: AQICN EPA AQI tile layer from the original map. The overlay remains optional and reports unavailable when tiles fail to load.
 - Search and basemaps: Mapbox.
 - County emergency links: reviewed static records in `data/county-evacuation-sources.json`.
 
 Evacuation zones are not drawn in this map. County emergency links are external official sources only. Distance to fires is inferred from mapped perimeters or incident points and is not an official risk score.
 
 The map does not provide alerts, saved places, smoke forecast polygons, road closures, evacuation-order polygons, or true change history.
+
+County records use `text-only`, `current-map`, `incident-map`, and `zone-map` status values for maintenance context. Incident-specific map links should be rechecked weekly while the incident is active. Automated link checks that return 403, 429, or timeout responses should be treated as review signals because some official sites block automated probes even when browser access works.
 
 ## Run Locally
 

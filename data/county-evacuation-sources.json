@@ -103,7 +103,7 @@
   },
   {
     "county": "Boulder",
-    "status": "text-only",
+    "status": "current-map",
     "emergencyUrl": "https://boulderodm.gov/",
     "emergencyVerified": true,
     "sheriffUrl": "https://bouldercounty.gov/safety/sheriff/",
@@ -205,7 +205,7 @@
   },
   {
     "county": "Costilla",
-    "status": "text-only",
+    "status": "current-map",
     "emergencyUrl": "https://www.costillacounty.gov/emergency-management",
     "emergencyVerified": true,
     "sheriffUrl": "https://www.costillacounty.gov/sheriff",
@@ -239,8 +239,8 @@
   },
   {
     "county": "Custer",
-    "status": "text-only",
-    "emergencyUrl": "https://dhsem.colorado.gov/emergencyalert",
+    "status": "incident-map",
+    "emergencyUrl": "https://dhsem.colorado.gov/local-emergency-managers",
     "emergencyVerified": true,
     "sheriffUrl": "https://custersheriff.colorado.gov/",
     "sheriffVerified": true,
@@ -252,7 +252,7 @@
     "alertUrl": "https://member.everbridge.net/355009111785665/new",
     "alertVerified": true,
     "lastChecked": "2026-07-07",
-    "notes": "Custer County's county-hosted emergency management page is not linked because its HTTPS endpoint fails TLS in some browsers. Emergency-management contact is linked through Colorado DHSEM's official Local Emergency Managers page. Sheriff link uses the official State of Colorado sheriff portal. Everbridge signup and Aspen Acres Fire information map verified. Map is incident-specific."
+    "notes": "Custer County's county-hosted emergency management page is not linked because its HTTPS endpoint fails TLS in some browsers. Emergency-management contact is linked through Colorado DHSEM's official Local Emergency Managers page, which redirects to DHSEM emergency alerts. Sheriff link uses the official State of Colorado sheriff portal. Everbridge signup and Aspen Acres Fire information map verified. Map is incident-specific."
   },
   {
     "county": "Delta",
@@ -324,7 +324,7 @@
   },
   {
     "county": "Eagle",
-    "status": "text-only",
+    "status": "current-map",
     "emergencyUrl": "https://www.eaglecounty.us/departments___services/emergency_management/index.php",
     "emergencyVerified": true,
     "sheriffUrl": "https://www.eaglesheriff.com/services/emergency_preparedness/emergency_notifications.php",
@@ -341,7 +341,7 @@
   },
   {
     "county": "El Paso",
-    "status": "text-only",
+    "status": "current-map",
     "emergencyUrl": "https://pproem.com/",
     "emergencyVerified": true,
     "sheriffUrl": "https://epcsheriffsoffice.com/",
@@ -426,7 +426,7 @@
   },
   {
     "county": "Grand",
-    "status": "text-only",
+    "status": "zone-map",
     "emergencyUrl": "https://www.co.grand.co.us/156/Emergency-Management",
     "emergencyVerified": true,
     "sheriffUrl": "https://www.co.grand.co.us/255/Grand-County-Sheriffs-Office",
@@ -562,7 +562,7 @@
   },
   {
     "county": "La Plata",
-    "status": "text-only",
+    "status": "zone-map",
     "emergencyUrl": "https://www.lpcgov.org/departments/emergency_management/index.php",
     "emergencyVerified": true,
     "sheriffUrl": "https://www.lpcgov.org/departments/sheriff_s_office/index.php",
@@ -579,7 +579,7 @@
   },
   {
     "county": "Lake",
-    "status": "text-only",
+    "status": "incident-map",
     "emergencyUrl": "https://www.lakecountyco.gov/230/Office-of-Emergency-Management",
     "emergencyVerified": true,
     "sheriffUrl": "https://www.lakecountyco.gov/232/Sheriff",
@@ -596,7 +596,7 @@
   },
   {
     "county": "Larimer",
-    "status": "text-only",
+    "status": "current-map",
     "emergencyUrl": "https://www.larimer.gov/emergency",
     "emergencyVerified": true,
     "sheriffUrl": "https://www.larimer.gov/sheriff",
@@ -669,15 +669,15 @@
     "emergencyVerified": true,
     "sheriffUrl": "https://www.mesacounty.us/departments-and-services/sheriff",
     "sheriffVerified": true,
-    "evacuationInfoUrl": "",
-    "evacuationInfoVerified": false,
-    "evacuationMapUrl": "https://crimewatch.net/us/co/mesa/sheriff/134177/post/pre-evacuation-notice-road-closures-due-multiple-fires-western-mesa-county",
-    "evacuationMapVerified": true,
-    "evacuationMapType": "incident",
+    "evacuationInfoUrl": "https://crimewatch.net/us/co/mesa/sheriff/134177/post/pre-evacuation-notice-road-closures-due-multiple-fires-western-mesa-county",
+    "evacuationInfoVerified": true,
+    "evacuationMapUrl": "",
+    "evacuationMapVerified": false,
+    "evacuationMapType": "",
     "alertUrl": "https://member.everbridge.net/index/892807736721759",
     "alertVerified": true,
     "lastChecked": "2026-07-06",
-    "notes": "Official Mesa County Sheriff emergency management, sheriff, Everbridge signup, and incident-specific pre-evacuation map post."
+    "notes": "Official Mesa County Sheriff emergency management, sheriff, Everbridge signup, and incident-specific pre-evacuation information post verified. No standalone public evacuation map was verified."
   },
   {
     "county": "Mineral",
@@ -732,7 +732,7 @@
   },
   {
     "county": "Montrose",
-    "status": "text-only",
+    "status": "incident-map",
     "emergencyUrl": "https://www.montrosecounty.net/85/Emergency-Management",
     "emergencyVerified": true,
     "sheriffUrl": "https://montrosecountysheriffsoffice.com/",
@@ -783,7 +783,7 @@
   },
   {
     "county": "Ouray",
-    "status": "text-only",
+    "status": "incident-map",
     "emergencyUrl": "https://ouraycountyco.gov/272/Emergency-Management",
     "emergencyVerified": true,
     "sheriffUrl": "https://ouraycountyco.gov/152/Sheriff",
@@ -834,7 +834,7 @@
   },
   {
     "county": "Pitkin",
-    "status": "text-only",
+    "status": "zone-map",
     "emergencyUrl": "https://pitkincounty.com/190/Emergency-Management",
     "emergencyVerified": true,
     "sheriffUrl": "https://pitkincounty.com/149/Sheriff",
@@ -868,7 +868,7 @@
   },
   {
     "county": "Pueblo",
-    "status": "text-only",
+    "status": "current-map",
     "emergencyUrl": "https://www.pueblosheriff.com/162/Emergency-Management",
     "emergencyVerified": true,
     "sheriffUrl": "https://www.pueblosheriff.com/394/Pueblo-Emergency-Status-Board",
@@ -919,7 +919,7 @@
   },
   {
     "county": "Routt",
-    "status": "text-only",
+    "status": "current-map",
     "emergencyUrl": "https://www.co.routt.co.us/153/Emergency-Management",
     "emergencyVerified": true,
     "sheriffUrl": "",

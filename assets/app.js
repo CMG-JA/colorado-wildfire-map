@@ -18,6 +18,12 @@
     const MAPBOX_TOKEN = window.MAPBOX_ACCESS_TOKEN || document.body.dataset.mapboxToken || '';
     const TOP_FIRE_LIMIT = Number(document.body.dataset.topFires || 5);
     const COLORADO_QUERY_ENVELOPE = '-109.060253,36.992426,-102.041524,41.003444';
+    const COLORADO_BOUNDS = {
+        west: -109.060253,
+        south: 36.992426,
+        east: -102.041524,
+        north: 41.003444
+    };
     const PERIMETERS_ENDPOINT = buildArcgisSpatialQueryUrl(
         'WFIGS_Interagency_Perimeters_Current'
     );
@@ -25,6 +31,7 @@
         'WFIGS_Incident_Locations_Current'
     );
     const DAY_MS = 86_400_000;
+    const END_OF_DAY_MS = DAY_MS - 1;
     const SIZE_BUCKETS = [
         { id: 'mega', label: 'Mega - 100k+ acres', min: 100_000, max: null, color: '#ff4d4f' },
         { id: 'major', label: 'Major - 50k-100k', min: 50_000, max: 100_000, color: '#ff7648' },
@@ -51,6 +58,7 @@
     const COUNTY_SOURCES_ENDPOINT = 'data/county-evacuation-sources.json';
     const MAPBOX_GEOCODE_ENDPOINT = 'https://api.mapbox.com/geocoding/v5/mapbox.places/';
     const COLORADO_GEOCODE_BBOX = '-109.060253,36.992426,-102.041524,41.003444';
+    const MAP_LOAD_TIMEOUT_MS = 30_000;
     const EMPTY_COLLECTION = { type: 'FeatureCollection', features: [] };
     const SELECTED_PLACE_SOURCE_ID = 'selected-place';
     const SELECTED_PLACE_LAYER_ID = 'selected-place-marker';
@@ -94,9 +102,12 @@
         showRedFlagWarnings: true,
         redFlagGeojson: null,
         redFlagFetchPromise: null,
+        aqiFailureHandled: false,
         baseStyle: 'terrain',
         featureLookupByName: new Map(),
         featureLookupById: new Map(),
+        placeSearchResults: [],
+        activeSearchResultIndex: -1,
         selectedPlace: null,
         selectedFireId: null,
         initialMapView: null,
@@ -108,7 +119,7 @@
             fires: { status: 'loading', fetchedAt: null, sourceUpdatedAt: null, error: null },
             incidents: { status: 'loading', fetchedAt: null, sourceUpdatedAt: null, error: null },
             redFlag: { status: 'loading', fetchedAt: null, sourceUpdatedAt: null, error: null },
-            aqi: { status: 'available', fetchedAt: null, sourceUpdatedAt: null, error: null },
+            aqi: { status: 'disabled', fetchedAt: null, sourceUpdatedAt: null, error: null },
             county: { status: 'loading', fetchedAt: null, sourceUpdatedAt: null, error: null }
         }
     };
@@ -120,27 +131,31 @@
         return;
     }
 
+    if (!window.mapboxgl?.Map) {
+        blockInitialization('Map library unavailable. Check network access to Mapbox GL JS.');
+        return;
+    }
+
     mapboxgl.accessToken = MAPBOX_TOKEN;
     // Below 980px the map is laid out in-flow (not fixed full-screen), so it
     // sits inline with page content the user needs to scroll past. Cooperative
     // gestures let a single-finger swipe scroll the page instead of panning
     // the map; two fingers (or ctrl/cmd + scroll) are required to move the map.
-    const isScrollableLayout = window.matchMedia('(max-width: 980px)').matches;
-
-    const map = new mapboxgl.Map({
-        container: 'map',
-        style: MAPBOX_STYLES[state.baseStyle],
-        bounds: STATE_BOUNDS,
-        fitBoundsOptions: { padding: 20 },
-        maxBounds: MAX_BOUNDS,
-        minZoom: 5,
-        attributionControl: false,
-        cooperativeGestures: isScrollableLayout
-    });
+    const scrollableLayoutQuery = window.matchMedia('(max-width: 980px)');
+    let isScrollableLayout = scrollableLayoutQuery.matches;
+    let mapLoaded = false;
+    const map = createMapInstance();
+    if (!map) return;
+    const mapLoadTimeout = window.setTimeout(() => {
+        if (!mapLoaded) {
+            blockInitialization('Map did not finish loading. Check the Mapbox token, style, or network access.');
+        }
+    }, MAP_LOAD_TIMEOUT_MS);
 
     map.addControl(new mapboxgl.AttributionControl({ customAttribution: 'Fire data: NIFC/WFIGS. Weather: National Weather Service.' }));
     map.addControl(new mapboxgl.NavigationControl(), 'top-left');
     map.addControl(new mapboxgl.FullscreenControl(), 'top-left');
+    map.on('error', handleMapError);
 
     const clickPopup = new mapboxgl.Popup({ closeButton: true, anchor: 'top', maxWidth: '320px' });
     let interactionsBound = false;
@@ -161,6 +176,8 @@
     const countySourcesPromise = loadCountySources();
 
     map.on('load', async () => {
+        mapLoaded = true;
+        window.clearTimeout(mapLoadTimeout);
         try {
             const geojson = await fetchAndMergeWildfireData();
             enrichFeatureProperties(geojson);
@@ -202,7 +219,11 @@
             ensureAirQualityLayer();
         }
         if (state.showRedFlagWarnings) {
-            ensureRedFlagWarningsLayer();
+            ensureRedFlagWarningsLayer().catch((error) => {
+                console.error('Error loading red flag warnings:', error);
+                state.sourceStatus.redFlag = { status: 'error', fetchedAt: Date.now(), sourceUpdatedAt: null, error: error.message };
+                renderSourceStatus();
+            });
         }
         ensureSelectedPlaceLayer();
         applyMapPadding();
@@ -210,7 +231,26 @@
 
     window.addEventListener('resize', () => {
         applyMapPadding();
+        syncCooperativeGestures();
     });
+
+    function createMapInstance() {
+        try {
+            return new mapboxgl.Map({
+                container: 'map',
+                style: MAPBOX_STYLES[state.baseStyle],
+                bounds: STATE_BOUNDS,
+                fitBoundsOptions: { padding: 20 },
+                maxBounds: MAX_BOUNDS,
+                minZoom: 5,
+                attributionControl: false,
+                cooperativeGestures: isScrollableLayout
+            });
+        } catch (error) {
+            blockInitialization(`Unable to initialize the map: ${error.message}`);
+            return null;
+        }
+    }
 
     function initializeStyleToggle() {
         syncStyleButtons();
@@ -280,12 +320,7 @@
 
     function initializeAirQualityToggle() {
         refs.airQualityToggle.addEventListener('change', (event) => {
-            state.showAirQuality = event.target.checked;
-            if (state.showAirQuality) {
-                ensureAirQualityLayer();
-            } else if (map.getLayer(AQ_LAYER_ID)) {
-                map.setLayoutProperty(AQ_LAYER_ID, 'visibility', 'none');
-            }
+            setAirQualityVisibility(event.target.checked);
             updateUrlState();
         });
     }
@@ -309,6 +344,7 @@
                     refs.redFlagToggle.checked = false;
                 } finally {
                     refs.redFlagToggle.disabled = false;
+                    renderSourceStatus();
                 }
             } else {
                 state.sourceStatus.redFlag = { status: 'disabled', fetchedAt: null, sourceUpdatedAt: null, error: null };
@@ -354,18 +390,26 @@
             fetchGeoJsonCollection(INCIDENTS_ENDPOINT, 'incidents')
         ]);
 
-        if (perimeterResult.status === 'rejected') {
+        if (perimeterResult.status === 'rejected' && incidentResult.status === 'rejected') {
             state.sourceStatus.fires = {
                 status: 'error',
                 fetchedAt: Date.now(),
                 sourceUpdatedAt: null,
                 error: perimeterResult.reason?.message || 'Perimeter feed unavailable'
             };
+            state.sourceStatus.incidents = {
+                status: 'error',
+                fetchedAt: Date.now(),
+                sourceUpdatedAt: null,
+                error: incidentResult.reason?.message || 'Incident feed unavailable'
+            };
             renderSourceStatus();
-            throw new Error(`NIFC/WFIGS perimeters unavailable: ${state.sourceStatus.fires.error}`);
+            throw new Error('NIFC/WFIGS fire feeds unavailable.');
         }
 
-        const perimeters = perimeterResult.value;
+        const perimeters = perimeterResult.status === 'fulfilled'
+            ? perimeterResult.value
+            : { ...EMPTY_COLLECTION, __error: perimeterResult.reason?.message || 'Perimeter feed unavailable' };
         const incidents = incidentResult.status === 'fulfilled'
             ? incidentResult.value
             : { ...EMPTY_COLLECTION, __error: incidentResult.reason?.message || 'Incident feed unavailable' };
@@ -373,10 +417,12 @@
         const incidentFeatures = safeFeatures(incidents);
 
         state.sourceStatus.fires = {
-            status: perimeterFeatures.length ? 'loaded' : 'empty',
+            status: perimeterResult.status === 'fulfilled'
+                ? (perimeterFeatures.length ? 'loaded' : 'empty')
+                : 'error',
             fetchedAt: Date.now(),
             sourceUpdatedAt: maxTimestamp(perimeterFeatures.map((feature) => getFeatureUpdatedTimestamp(feature.properties || {}))),
-            error: null
+            error: perimeterResult.status === 'fulfilled' ? null : (perimeters.__error || 'Perimeter feed unavailable')
         };
         state.sourceStatus.incidents = {
             status: incidentResult.status === 'fulfilled'
@@ -412,18 +458,8 @@
             return nameCountyKey ? !perimeterNameCountyKeys.has(nameCountyKey) : true;
         });
 
-        // Normalize incident point properties to match perimeter schema
         pointsWithoutPerimeters.forEach(f => {
-            const props = f.properties || {};
-            // Map incident fields to perimeter-style fields
-            props.poly_IncidentName = props.IncidentName;
-            props.poly_GISAcres = props.DailyAcres || props.CalculatedAcres || props.IncidentSize || 0;
-            props.attr_PercentContained = props.PercentContained;
-            props.attr_FireCause = props.FireCause;
-            props.attr_POOState = props.POOState;
-            props.attr_POOCounty = props.POOCounty;
-            props.__featureType = 'point'; // Flag for rendering as point
-            f.properties = props;
+            normalizeIncidentPointFeature(f);
         });
 
         // Combine: perimeters first, then points without perimeters
@@ -434,6 +470,19 @@
 
         renderSourceStatus();
         return combined;
+    }
+
+    function normalizeIncidentPointFeature(feature) {
+        const props = feature.properties || {};
+        props.poly_IncidentName = props.IncidentName || props.poly_IncidentName;
+        props.poly_GISAcres = props.DailyAcres || props.CalculatedAcres || props.IncidentSize || props.poly_GISAcres || 0;
+        props.attr_PercentContained = props.PercentContained ?? props.attr_PercentContained;
+        props.attr_FireCause = props.FireCause || props.attr_FireCause;
+        props.attr_POOState = props.POOState || props.attr_POOState;
+        props.attr_POOCounty = props.POOCounty || props.attr_POOCounty;
+        props.attr_FireDiscoveryDateTime = props.FireDiscoveryDateTime || props.DiscoveryDate || props.attr_FireDiscoveryDateTime;
+        props.__featureType = 'point';
+        feature.properties = props;
     }
 
     async function fetchGeoJsonCollection(url, label) {
@@ -560,11 +609,16 @@
 
     function parseTimestamp(props) {
         const candidateFields = [
+            'attr_FireDiscoveryDateTime',
+            'FireDiscoveryDateTime',
+            'DiscoveryDate',
             'attr_CreatedOnDateTime_dt',
+            'CreatedOnDateTime_dt',
             'attr_DateCurrent',
+            'DateCurrent',
             'attr_ModifiedOnDateTime_dt',
-            'attr_IrwinReportDate',
-            'attr_FireDiscoveryDateTime'
+            'ModifiedOnDateTime_dt',
+            'attr_IrwinReportDate'
         ];
         for (const field of candidateFields) {
             const value = props[field];
@@ -578,11 +632,21 @@
     }
 
     function parseDateLike(value) {
-        if (typeof value === 'number') return value;
+        if (typeof value === 'number') return value > 0 && value < 10_000_000_000 ? value * 1000 : value;
         const numeric = Number(value);
-        if (Number.isFinite(numeric) && numeric > 0) return numeric;
+        if (Number.isFinite(numeric) && numeric > 0) return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
         const parsed = Date.parse(value);
         return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function startOfLocalDay(ts) {
+        const date = new Date(ts);
+        date.setHours(0, 0, 0, 0);
+        return date.getTime();
+    }
+
+    function endOfLocalDay(ts) {
+        return startOfLocalDay(ts) + END_OF_DAY_MS;
     }
 
     function maxTimestamp(values) {
@@ -952,35 +1016,57 @@
     }
 
     function initializeTimelineControls() {
-        const timestamps = (state.geojson?.features || [])
+        const days = [...new Set((state.geojson?.features || [])
             .map((feature) => feature.properties.__discoveryTs)
-            .filter((ts) => Number.isFinite(ts) && ts >= 0);
+            .filter((ts) => Number.isFinite(ts) && ts >= 0)
+            .map(startOfLocalDay))]
+            .sort((a, b) => a - b);
 
-        if (!timestamps.length) {
+        if (!days.length) {
             refs.timelineRange.disabled = true;
             refs.timelineLabel.textContent = 'Timeline unavailable';
             state.timeline.enabled = false;
             return;
         }
 
-        const minTs = Math.min(...timestamps);
-        const maxTs = Math.max(...timestamps);
-        const totalDays = Math.max(0, Math.round((maxTs - minTs) / DAY_MS));
+        const minTs = days[0];
+        const maxTs = endOfLocalDay(days[days.length - 1]);
+        const lastIndex = Math.max(0, days.length - 1);
 
         refs.timelineRange.min = 0;
-        refs.timelineRange.max = totalDays || 1;
-        refs.timelineRange.value = totalDays;
-        state.timeline = { enabled: true, minTs, maxTs, currentTs: maxTs };
+        refs.timelineRange.max = lastIndex;
+        refs.timelineRange.value = lastIndex;
+        refs.timelineRange.disabled = days.length === 1;
+        state.timeline = { enabled: true, minTs, maxTs, currentTs: maxTs, days };
         updateTimelineLabel(maxTs);
 
         refs.timelineRange.addEventListener('input', () => {
-            const offsetDays = Number(refs.timelineRange.value);
-            const ts = state.timeline.minTs + offsetDays * DAY_MS;
+            const index = clampTimelineIndex(Number(refs.timelineRange.value));
+            const ts = endOfLocalDay(state.timeline.days[index]);
+            refs.timelineRange.value = index;
             state.timeline.currentTs = ts;
-            updateTimelineLabel(ts);
+            updateTimelineLabel(state.timeline.days[index]);
             updateMapFilters();
             updateUrlState();
         });
+    }
+
+    function clampTimelineIndex(index) {
+        const days = state.timeline.days || [];
+        if (!days.length) return 0;
+        const parsed = Number.isFinite(index) ? Math.round(index) : days.length - 1;
+        return Math.max(0, Math.min(days.length - 1, parsed));
+    }
+
+    function timelineIndexForTimestamp(ts) {
+        const days = state.timeline.days || [];
+        if (!days.length || !Number.isFinite(ts)) return null;
+        const dayTs = startOfLocalDay(ts);
+        if (dayTs <= days[0]) return 0;
+        for (let index = days.length - 1; index >= 0; index -= 1) {
+            if (dayTs >= days[index]) return index;
+        }
+        return days.length - 1;
     }
 
     function updateTimelineLabel(ts) {
@@ -989,6 +1075,24 @@
             day: 'numeric',
             year: 'numeric'
         });
+    }
+
+    function setAirQualityVisibility(show) {
+        state.showAirQuality = Boolean(show);
+        refs.airQualityToggle.checked = state.showAirQuality;
+
+        if (state.showAirQuality) {
+            state.aqiFailureHandled = false;
+            state.sourceStatus.aqi = { status: 'loading', fetchedAt: Date.now(), sourceUpdatedAt: null, error: null };
+            ensureAirQualityLayer();
+            return;
+        }
+
+        hideAirQualityLayer(false);
+        if (state.sourceStatus.aqi.status !== 'error') {
+            state.sourceStatus.aqi = { status: 'disabled', fetchedAt: null, sourceUpdatedAt: null, error: null };
+        }
+        renderSourceStatus();
     }
 
     function ensureAirQualityLayer() {
@@ -1025,6 +1129,48 @@
         renderSourceStatus();
     }
 
+    function hideAirQualityLayer(removeSource = false) {
+        if (map.getLayer(AQ_LAYER_ID)) {
+            if (removeSource) map.removeLayer(AQ_LAYER_ID);
+            else map.setLayoutProperty(AQ_LAYER_ID, 'visibility', 'none');
+        }
+        if (removeSource && map.getSource(AQ_SOURCE_ID)) {
+            map.removeSource(AQ_SOURCE_ID);
+        }
+    }
+
+    function markAirQualityUnavailable(message = 'AQI tiles unavailable') {
+        if (state.aqiFailureHandled) return;
+        state.aqiFailureHandled = true;
+        state.showAirQuality = false;
+        refs.airQualityToggle.checked = false;
+        state.sourceStatus.aqi = { status: 'error', fetchedAt: Date.now(), sourceUpdatedAt: null, error: message };
+        try {
+            hideAirQualityLayer(true);
+        } catch (error) {
+            console.warn('Unable to remove AQI overlay after tile failure:', error);
+        }
+        renderSourceStatus();
+        updateUrlState();
+    }
+
+    function handleMapError(event) {
+        const message = String(event?.error?.message || event?.message || '');
+        const sourceId = event?.sourceId || event?.error?.sourceId || '';
+        const isAqiError = sourceId === AQ_SOURCE_ID
+            || message.includes('tiles.aqicn.org')
+            || message.includes(AQ_SOURCE_ID);
+        if (isAqiError && state.showAirQuality) {
+            markAirQualityUnavailable(message || 'AQI tiles unavailable');
+            return;
+        }
+        if (!mapLoaded) {
+            blockInitialization(message
+                ? `Unable to load the map: ${message}`
+                : 'Unable to load the map. Check the Mapbox token, style, or network access.');
+        }
+    }
+
     async function ensureRedFlagWarningsLayer() {
         if (!state.redFlagGeojson) {
             if (!state.redFlagFetchPromise) {
@@ -1039,6 +1185,7 @@
         }
 
         state.redFlagGeojson = normalizeFeatureCollection(state.redFlagGeojson);
+        syncRedFlagStatusFromCache();
 
         if (!map.getSource(RFW_SOURCE_ID)) {
             map.addSource(RFW_SOURCE_ID, { type: 'geojson', data: state.redFlagGeojson });
@@ -1080,6 +1227,7 @@
             bindRedFlagInteractions();
             redFlagInteractionsBound = true;
         }
+        renderSourceStatus();
     }
 
     function hideRedFlagWarningsLayer() {
@@ -1089,6 +1237,18 @@
         if (map.getLayer(RFW_LINE_LAYER_ID)) {
             map.setLayoutProperty(RFW_LINE_LAYER_ID, 'visibility', 'none');
         }
+    }
+
+    function syncRedFlagStatusFromCache() {
+        if (!state.redFlagGeojson) return;
+        const features = safeFeatures(state.redFlagGeojson);
+        if (state.sourceStatus.redFlag.status === 'loaded' || state.sourceStatus.redFlag.status === 'empty') return;
+        state.sourceStatus.redFlag = {
+            status: features.length ? 'loaded' : 'empty',
+            fetchedAt: state.sourceStatus.redFlag.fetchedAt || Date.now(),
+            sourceUpdatedAt: state.sourceStatus.redFlag.sourceUpdatedAt,
+            error: null
+        };
     }
 
     function bindRedFlagInteractions() {
@@ -1199,9 +1359,16 @@
 
     function initializePlaceSearch() {
         if (!refs.placeSearchForm) return;
+        refs.placeSearchInput.setAttribute('role', 'combobox');
+        refs.placeSearchInput.setAttribute('aria-controls', 'place-search-results');
+        refs.placeSearchInput.setAttribute('aria-expanded', 'false');
+        refs.placeSearchInput.setAttribute('aria-autocomplete', 'list');
+        refs.placeSearchInput.setAttribute('aria-haspopup', 'listbox');
+        refs.placeSearchResults.setAttribute('role', 'listbox');
         refs.placeSearchForm.addEventListener('submit', (event) => {
             event.preventDefault();
             window.clearTimeout(placeSearchTimer);
+            if (selectActiveSearchResult()) return;
             const query = refs.placeSearchInput.value.trim();
             if (!query) {
                 placeSearchRequestId += 1;
@@ -1222,8 +1389,33 @@
                 searchPlace(query, { autoSelect: false, showSearching: false });
             }, 250);
         });
+        refs.placeSearchInput.addEventListener('keydown', handlePlaceSearchKeydown);
         refs.useLocation?.addEventListener('click', useCurrentLocation);
         refs.clearPlace.addEventListener('click', clearSelectedPlace);
+    }
+
+    function handlePlaceSearchKeydown(event) {
+        const hasChoices = state.placeSearchResults.length > 0 && refs.placeSearchResults.classList.contains('is-open');
+        if (event.key === 'Escape') {
+            closeSearchResults();
+            return;
+        }
+        if (event.key === 'ArrowDown' && hasChoices) {
+            event.preventDefault();
+            const next = state.activeSearchResultIndex < 0 ? 0 : state.activeSearchResultIndex + 1;
+            setActiveSearchResult(next);
+            return;
+        }
+        if (event.key === 'ArrowUp' && hasChoices) {
+            event.preventDefault();
+            const next = state.activeSearchResultIndex < 0 ? state.placeSearchResults.length - 1 : state.activeSearchResultIndex - 1;
+            setActiveSearchResult(next);
+            return;
+        }
+        if (event.key === 'Enter' && hasChoices && state.activeSearchResultIndex >= 0) {
+            event.preventDefault();
+            selectActiveSearchResult();
+        }
     }
 
     function useCurrentLocation() {
@@ -1239,6 +1431,10 @@
                 const { latitude, longitude } = position.coords || {};
                 if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
                     renderSearchMessage('Current location unavailable.');
+                    return;
+                }
+                if (!isColoradoLngLat(longitude, latitude)) {
+                    renderSearchMessage('Current location is outside Colorado coverage.');
                     return;
                 }
                 refs.placeSearchInput.value = 'Current location';
@@ -1301,10 +1497,7 @@
     function isColoradoSearchResult(feature) {
         const center = feature.center || [];
         const inBounds = center.length >= 2
-            && center[0] >= -109.060253
-            && center[0] <= -102.041524
-            && center[1] >= 36.992426
-            && center[1] <= 41.003444;
+            && isColoradoLngLat(center[0], center[1]);
         if (inBounds) return true;
         return (feature.context || []).some((item) => /colorado|\bco\b/i.test(`${item.text || ''} ${item.short_code || ''}`));
     }
@@ -1318,36 +1511,78 @@
     }
 
     function renderSearchChoices(results) {
+        state.placeSearchResults = results;
+        state.activeSearchResultIndex = -1;
         refs.placeSearchResults.innerHTML = results.map((feature, index) => `
-            <button type="button" class="result-button" data-result-index="${index}">
+            <div class="result-button" role="option" id="place-search-option-${index}" data-result-index="${index}" aria-selected="false" tabindex="-1">
                 ${escapeHtml(feature.text || feature.place_name || 'Place')}
                 <span class="result-context">${escapeHtml(feature.place_name || '')}</span>
-            </button>
+            </div>
         `).join('');
         refs.placeSearchResults.classList.add('is-open');
+        refs.placeSearchInput.setAttribute('aria-expanded', 'true');
+        refs.placeSearchInput.removeAttribute('aria-activedescendant');
         refs.placeSearchResults.querySelectorAll('[data-result-index]').forEach((button) => {
             button.addEventListener('click', () => {
                 const index = Number(button.dataset.resultIndex);
-                const feature = results[index];
-                if (feature) selectPlaceFromGeocode(feature);
+                selectSearchResultByIndex(index);
             });
         });
     }
 
     function renderSearchMessage(message) {
+        state.placeSearchResults = [];
+        state.activeSearchResultIndex = -1;
         refs.placeSearchResults.innerHTML = `<div class="result-button" role="status">${escapeHtml(message)}</div>`;
         refs.placeSearchResults.classList.add('is-open');
+        refs.placeSearchInput.setAttribute('aria-expanded', 'true');
+        refs.placeSearchInput.removeAttribute('aria-activedescendant');
     }
 
     function closeSearchResults() {
+        state.placeSearchResults = [];
+        state.activeSearchResultIndex = -1;
         refs.placeSearchResults.innerHTML = '';
         refs.placeSearchResults.classList.remove('is-open');
+        refs.placeSearchInput.setAttribute('aria-expanded', 'false');
+        refs.placeSearchInput.removeAttribute('aria-activedescendant');
+    }
+
+    function setActiveSearchResult(index) {
+        if (!state.placeSearchResults.length) return;
+        const count = state.placeSearchResults.length;
+        state.activeSearchResultIndex = ((index % count) + count) % count;
+        refs.placeSearchResults.querySelectorAll('[role="option"]').forEach((button) => {
+            const isActive = Number(button.dataset.resultIndex) === state.activeSearchResultIndex;
+            button.classList.toggle('is-active', isActive);
+            button.setAttribute('aria-selected', String(isActive));
+            if (isActive) {
+                refs.placeSearchInput.setAttribute('aria-activedescendant', button.id);
+                button.scrollIntoView({ block: 'nearest' });
+            }
+        });
+    }
+
+    function selectActiveSearchResult() {
+        if (state.activeSearchResultIndex < 0) return false;
+        return selectSearchResultByIndex(state.activeSearchResultIndex);
+    }
+
+    function selectSearchResultByIndex(index) {
+        const feature = state.placeSearchResults[index];
+        if (!feature) return false;
+        selectPlaceFromGeocode(feature);
+        return true;
     }
 
     function selectPlaceFromGeocode(feature) {
         const [lng, lat] = feature.center || [];
         if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
             renderSearchMessage('This result has no usable location.');
+            return;
+        }
+        if (!isColoradoLngLat(lng, lat)) {
+            renderSearchMessage('This result is outside Colorado coverage.');
             return;
         }
         const label = feature.place_name || feature.text || 'Selected place';
@@ -1372,14 +1607,24 @@
     }
 
     function setSelectedPlace(place, options = {}) {
+        const lng = Number(place.lng);
+        const lat = Number(place.lat);
+        if (!isValidLngLat(lng, lat)) {
+            renderSearchMessage('This place has no usable location.');
+            return false;
+        }
+        if (!isColoradoLngLat(lng, lat)) {
+            renderSearchMessage('This place is outside Colorado coverage.');
+            return false;
+        }
         if (!options.preserveFire) {
             state.selectedFireId = null;
             clickPopup.remove();
         }
         state.selectedPlace = {
             label: place.label || 'Selected place',
-            lng: Number(place.lng),
-            lat: Number(place.lat),
+            lng,
+            lat,
             county: normalizeCountyName(place.county),
             shareable: place.shareable !== false
         };
@@ -1392,6 +1637,7 @@
             map.once('moveend', updateUrlState);
         }
         updateUrlState();
+        return true;
     }
 
     function clearSelectedPlace() {
@@ -1715,6 +1961,15 @@
         const centerLat = parseFinite(params.get('clat'));
         const zoom = parseFinite(params.get('z'));
         const style = MAPBOX_STYLES[params.get('style')] ? params.get('style') : null;
+        const selectedPlace = isColoradoLngLat(lng, lat) ? {
+            lng,
+            lat,
+            label: params.get('place') || 'Shared place',
+            county: params.get('county') || ''
+        } : null;
+        const mapView = isLngLatInBounds(centerLng, centerLat, MAX_BOUNDS) && Number.isFinite(zoom)
+            ? { center: [centerLng, centerLat], zoom: Math.max(5, Math.min(14, zoom)) }
+            : null;
         const sizes = (sizesParam || '')
             .split(',')
             .map((item) => item.trim())
@@ -1723,15 +1978,8 @@
             ? params.get('containment')
             : null;
         return {
-            selectedPlace: Number.isFinite(lng) && Number.isFinite(lat) ? {
-                lng,
-                lat,
-                label: params.get('place') || 'Shared place',
-                county: params.get('county') || ''
-            } : null,
-            mapView: Number.isFinite(centerLng) && Number.isFinite(centerLat) && Number.isFinite(zoom)
-                ? { center: [centerLng, centerLat], zoom: Math.max(5, Math.min(14, zoom)) }
-                : null,
+            selectedPlace,
+            mapView,
             style,
             sizesParam,
             sizes,
@@ -1745,9 +1993,18 @@
 
     function applyInitialUrlState(urlState) {
         if (urlState.style) state.baseStyle = urlState.style;
-        if (urlState.sizesParam !== null) state.activeSizeBuckets = new Set(urlState.sizes);
+        if (urlState.sizesParam !== null) {
+            state.activeSizeBuckets = urlState.sizes.length || urlState.sizesParam.trim() === ''
+                ? new Set(urlState.sizes)
+                : new Set(SIZE_BUCKETS.map((bucket) => bucket.id));
+        }
         if (urlState.containment) state.containmentFilter = urlState.containment;
-        if (urlState.showAirQuality !== null) state.showAirQuality = urlState.showAirQuality;
+        if (urlState.showAirQuality !== null) {
+            state.showAirQuality = urlState.showAirQuality;
+            state.sourceStatus.aqi = state.showAirQuality
+                ? { status: 'loading', fetchedAt: null, sourceUpdatedAt: null, error: null }
+                : { status: 'disabled', fetchedAt: null, sourceUpdatedAt: null, error: null };
+        }
         if (urlState.showRedFlagWarnings !== null) {
             state.showRedFlagWarnings = urlState.showRedFlagWarnings;
             if (!state.showRedFlagWarnings) {
@@ -1780,10 +2037,14 @@
             restoredSelectedPlace = true;
         }
         if (Number.isFinite(state.initialTimelineTs) && state.timeline.enabled) {
-            const clamped = Math.max(state.timeline.minTs, Math.min(state.timeline.maxTs, state.initialTimelineTs));
-            state.timeline.currentTs = clamped;
-            refs.timelineRange.value = Math.round((clamped - state.timeline.minTs) / DAY_MS);
-            updateTimelineLabel(clamped);
+            const index = timelineIndexForTimestamp(state.initialTimelineTs);
+            if (index !== null) {
+                const selectedDay = state.timeline.days[index];
+                const ts = endOfLocalDay(selectedDay);
+                state.timeline.currentTs = ts;
+                refs.timelineRange.value = index;
+                updateTimelineLabel(selectedDay);
+            }
             updateMapFilters();
         }
         if (state.restoredFireKey) {
@@ -1797,7 +2058,9 @@
         }
         if (restoredSelectedPlace) {
             const zoom = Math.max(state.initialMapView?.zoom || map.getZoom(), 9);
-            map.jumpTo({ center: [state.selectedPlace.lng, state.selectedPlace.lat], zoom });
+            if (isColoradoLngLat(state.selectedPlace.lng, state.selectedPlace.lat)) {
+                map.jumpTo({ center: [state.selectedPlace.lng, state.selectedPlace.lat], zoom });
+            }
             updateUrlState();
             return;
         }
@@ -1891,7 +2154,9 @@
 
     function compactAqiSummary() {
         if (state.sourceStatus.aqi.status === 'error') return 'AQI overlay unavailable.';
-        return state.showAirQuality ? 'AQI overlay on.' : '';
+        if (state.sourceStatus.aqi.status === 'loading') return 'AQI overlay loading.';
+        if (state.showAirQuality && state.sourceStatus.aqi.status === 'available') return 'AQI overlay on.';
+        return '';
     }
 
     function compactCountySummary() {
@@ -1906,6 +2171,31 @@
         if (value === null || value === '') return null;
         const parsed = Number(value);
         return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function isValidLngLat(lng, lat) {
+        return Number.isFinite(lng)
+            && Number.isFinite(lat)
+            && lng >= -180
+            && lng <= 180
+            && lat >= -90
+            && lat <= 90;
+    }
+
+    function isLngLatInBounds(lng, lat, bounds) {
+        return isValidLngLat(lng, lat)
+            && lng >= bounds[0][0]
+            && lng <= bounds[1][0]
+            && lat >= bounds[0][1]
+            && lat <= bounds[1][1];
+    }
+
+    function isColoradoLngLat(lng, lat) {
+        return isValidLngLat(lng, lat)
+            && lng >= COLORADO_BOUNDS.west
+            && lng <= COLORADO_BOUNDS.east
+            && lat >= COLORADO_BOUNDS.south
+            && lat <= COLORADO_BOUNDS.north;
     }
 
     function parseBooleanParam(value) {
@@ -2078,5 +2368,18 @@
             right: isOverlayLayout ? hudWidth + 48 : 20
         };
         map.setPadding(state.mapPadding);
+    }
+
+    function syncCooperativeGestures() {
+        const shouldUseCooperativeGestures = scrollableLayoutQuery.matches;
+        if (shouldUseCooperativeGestures === isScrollableLayout) return;
+        isScrollableLayout = shouldUseCooperativeGestures;
+        const handler = map.cooperativeGestures;
+        if (!handler || typeof handler.enable !== 'function' || typeof handler.disable !== 'function') return;
+        if (shouldUseCooperativeGestures) {
+            handler.enable();
+        } else {
+            handler.disable();
+        }
     }
 })();

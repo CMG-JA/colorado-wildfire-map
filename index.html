@@ -21,7 +21,7 @@
     <div id="map" role="region" aria-label="Interactive Colorado wildfire map"></div>
     <div id="loading-overlay" role="status" aria-live="polite">Loading wildfire data...</div>
     <div id="error-banner" role="alert" hidden></div>
-    <div id="last-update" aria-live="polite"></div>
+    <div id="last-update" aria-live="polite" hidden></div>
 
     <div class="hud">
         <section id="stats-panel" class="panel">
@@ -51,11 +51,11 @@
             <div class="place-tools">
                 <form id="place-search-form" class="place-search" autocomplete="off">
                     <label for="place-search-input">Check a place</label>
-                    <input id="place-search-input" name="q" type="search" placeholder="Check a place" />
+                    <input id="place-search-input" name="q" type="search" placeholder="Check a place" role="combobox" aria-controls="place-search-results" aria-expanded="false" aria-autocomplete="list" aria-haspopup="listbox" />
                     <button type="button" id="use-location" class="text-button">Use location</button>
                     <button type="submit" class="text-button">Search</button>
                 </form>
-                <div id="place-search-results" class="search-results" aria-live="polite"></div>
+                <div id="place-search-results" class="search-results" role="listbox" aria-live="polite"></div>
             </div>
 
             <div id="selected-place" class="selected-place" hidden>
